@@ -1,0 +1,13 @@
+sandbox
+
+/**/bin
+/**/obj
+/**/.vs
+/**/.vscode
+/**/.idea
+/**/*.suo
+/**/*.scc
+/**/*.mdf
+/**/*.ldf
+/**/*.csproj.user
+/**/*.DotSettings.user

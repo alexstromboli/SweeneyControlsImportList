@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage SchemaVersion="1.0"
+        AutodeskProduct="AutoCAD"
+        Name="SweeneyControls"
+        ProductType="Application" 
+        AppVersion="1.0.0"
+        ProductCode="{F7553600-7EB8-4F61-9170-FB9EEA725F17}"
+        UpgradeCode="{C7FDBB01-009F-4B0A-9844-1CD77A80687C}"
+        >
+  <CompanyDetails Name="SweeneyControls" />
+  <Components>
+    <ComponentEntry AppName="SweeneyControls ImportList" Version="1.0.0" ModuleName="./Contents/ImportList.dll" LoadOnAutoCADStartup="True">
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>
