@@ -13,21 +13,19 @@ using SpreadsheetGear;
 
 namespace SweeneyControls
 {
-	public class Entry
+	public enum ColumnIndex : int
 	{
-		public string PartNumber;
-		public string Manufacturer;
-		public string Assembly;
-		public string Symbol;
-		public double? X;
-		public double? Y;
-
-		public string Description1;
-		public string Description2;
-		public string Description3;
+		PartNumber = 0,
+		Manufacturer,
+		Assembly,
+		Symbol,
+		Location,
+		Description1,
+		Description2,
+		Description3
 	}
 
-	public partial class ImportList : IExtensionApplication
+	public partial class Controller : IExtensionApplication
 	{
 		public static CultureInfo ci = new CultureInfo ("en");
 
@@ -39,7 +37,7 @@ namespace SweeneyControls
 		{
 		}
 
-		protected static TypedValue[] RunCommand (params TypedValue[] Values)
+		protected static TypedValue[] RunApplicationCommand (params TypedValue[] Values)
 		{
 			TypedValue[] Result;
 
@@ -53,7 +51,7 @@ namespace SweeneyControls
 		}
 
 		[CommandMethod("impsc")]
-		public void ImportSchema ()
+		public void ImportList ()
 		{
 			OpenFileDialog ofd = new OpenFileDialog ("Select Excel spreadsheet to import",
 					  null,
@@ -69,50 +67,70 @@ namespace SweeneyControls
 				return;
 			}
 
-			//
-			IWorkbook wb = SpreadsheetGear.Factory.GetWorkbook (ofd.Filename);
-			IWorksheet ws = wb.Worksheets[0];
-			IRange UsedRange = ws.UsedRange;
-			int RowsCount = UsedRange.RowCount;
-			Entry[] Entries = Enumerable.Range (0, RowsCount)
-				.Skip (1)
-				.Select (n =>
-				{
-					Entry Entry = new Entry
-					{
-						PartNumber = ws.Cells[n, 0].Text.Trim (),
-						Manufacturer = ws.Cells[n, 1].Text.Trim (),
-						Assembly = ws.Cells[n, 2].Text.Trim (),
-						Symbol = ws.Cells[n, 3].Text.Trim (),
-						Description1 = ws.Cells[n, 5].Text.Trim (),
-						Description2 = ws.Cells[n, 6].Text.Trim (),
-						Description3 = ws.Cells[n, 7].Text.Trim ()
-					};
+			// document
+			var ActiveDocument = Application.DocumentManager.MdiActiveDocument;
+			var Editor = ActiveDocument.Editor;
 
-					string LocStr = ws.Cells[n, 4].Text;
-					Match mLoc = Regex.Match (LocStr ?? "", @"([\d\.]+)\s*,\s*([\d\.]+)");
-					if (mLoc.Success
-						&& double.TryParse (mLoc.Groups[1].Value, NumberStyles.AllowDecimalPoint, ci, out double X)
-						&& double.TryParse (mLoc.Groups[2].Value, NumberStyles.AllowDecimalPoint, ci, out double Y)
-						)
-					{
-						Entry.X = X;
-						Entry.Y = Y;
-					}
-
-					return Entry;
-				}
-				)
-				.Where (e => !string.IsNullOrWhiteSpace (e.Symbol) && e.X.HasValue && e.Y.HasValue)
-				.ToArray ()
-				;
-			wb.Close ();
-
-			//
-			var doc = Application.DocumentManager.MdiActiveDocument;
-			var Editor = Application.DocumentManager.MdiActiveDocument.Editor;
-			using (Database db = doc.Database)
+			// read input
+			IWorkbook wb = null;
+			try
 			{
+				wb = SpreadsheetGear.Factory.GetWorkbook (ofd.Filename);
+			}
+			catch
+			{
+				Editor.WriteMessage ("Failed to open the spreadsheet");
+				return;
+			}
+
+			Entry[] Entries;
+			try
+			{
+				IWorksheet ws = wb.Worksheets[0];
+				IRange UsedRange = ws.UsedRange;
+				int RowsCount = UsedRange.RowCount;
+				Entries = Enumerable.Range (0, RowsCount)
+					.Skip (1)       // skip header row
+					.Select (n =>
+						{
+							Entry Entry = new Entry
+							{
+								PartNumber = ws.Cells[n, (int)ColumnIndex.PartNumber].Text.Trim (),
+								Manufacturer = ws.Cells[n, (int)ColumnIndex.Manufacturer].Text.Trim (),
+								Assembly = ws.Cells[n, (int)ColumnIndex.Assembly].Text.Trim (),
+								Symbol = ws.Cells[n, (int)ColumnIndex.Symbol].Text.Trim (),
+								Description1 = ws.Cells[n, (int)ColumnIndex.Description1].Text.Trim (),
+								Description2 = ws.Cells[n, (int)ColumnIndex.Description2].Text.Trim (),
+								Description3 = ws.Cells[n, (int)ColumnIndex.Description3].Text.Trim ()
+							};
+
+							string LocStr = ws.Cells[n, (int)ColumnIndex.Location].Text;
+							Match mLoc = Regex.Match (LocStr ?? "", @"([\d\.]+)\s*,\s*([\d\.]+)");
+							if (mLoc.Success
+								&& double.TryParse (mLoc.Groups[1].Value, NumberStyles.AllowDecimalPoint, ci, out double X)
+								&& double.TryParse (mLoc.Groups[2].Value, NumberStyles.AllowDecimalPoint, ci, out double Y)
+								)
+							{
+								Entry.X = X;
+								Entry.Y = Y;
+							}
+
+							return Entry;
+						}
+					)
+					.Where (e => !string.IsNullOrWhiteSpace (e.Symbol) && e.X.HasValue && e.Y.HasValue)
+					.ToArray ()
+					;
+			}
+			finally
+			{
+				wb.Close ();
+			}
+
+			// edit the drawing
+			using (Database db = ActiveDocument.Database)
+			{
+				// find Installation Code
 				string InstallationCode = "";
 				var PropEnum = db.SummaryInfo.CustomProperties;
 				while (PropEnum.MoveNext ())
@@ -124,11 +142,12 @@ namespace SweeneyControls
 					}
 				}
 
+				// render items
 				foreach (var Entry in Entries)
 				{
+					// due attributes
 					Dictionary<string, string> Attributes = new Dictionary<string, string>
 						{
-							//["TAG1"] = Entry.Symbol,
 							["MFG"] = Entry.Manufacturer,
 							["CAT"] = Entry.PartNumber,
 							["ASSYCODE"] = Entry.Assembly,
@@ -138,7 +157,8 @@ namespace SweeneyControls
 							["INST"] = InstallationCode
 						};
 
-					TypedValue[] RatingsRaw = RunCommand (
+					// find 'ratings'
+					TypedValue[] RatingsRaw = RunApplicationCommand (
 							new TypedValue ((int)LispDataType.Text, "c:ace_get_textvals"),
 							new TypedValue ((int)LispDataType.Nil),
 							new TypedValue ((int)LispDataType.Text, Entry.Symbol),
@@ -168,8 +188,8 @@ namespace SweeneyControls
 						Attributes[Key] = Value;
 					}
 
-					//
-					string BlockHandle = RunCommand (
+					// insert the symbol
+					string BlockHandle = RunApplicationCommand (
 							new TypedValue ((int)LispDataType.Text, "c:wd_insym2"),
 							new TypedValue ((int)LispDataType.Text, Entry.Symbol),
 							new TypedValue ((int)LispDataType.ListBegin),
@@ -185,11 +205,12 @@ namespace SweeneyControls
 					Handle h = new Handle (lh);
 					ObjectId id = db.GetObjectId (false, h, 0);
 
-					//
+					// populate attributes
 					using (Transaction tran = db.TransactionManager.StartTransaction ())
 					{
 						var Block = tran.GetObject (id, OpenMode.ForWrite) as BlockReference;
 
+						// update existing
 						foreach (var aid in Block.AttributeCollection.OfType<ObjectId> ())
 						{
 							using (var objAttr = tran.GetObject (aid, OpenMode.ForWrite))
@@ -202,6 +223,7 @@ namespace SweeneyControls
 							}
 						}
 
+						// add remaining
 						foreach (var kvp in Attributes.ToArray ())
 						{
 							Block.AttributeCollection.AppendAttribute (new AttributeReference
@@ -216,8 +238,8 @@ namespace SweeneyControls
 						Block.Dispose ();
 					}
 
-					//
-					RunCommand (
+					// attach pins
+					RunApplicationCommand (
 						new TypedValue ((int)LispDataType.Text, "c:wd_pinlist_attach"),
 						new TypedValue ((int)LispDataType.ObjectId, id),
 						new TypedValue ((int)LispDataType.Int32, 1)

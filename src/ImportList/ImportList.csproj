@@ -95,7 +95,8 @@
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="ImportList.cs" />
+    <Compile Include="Entry.cs" />
+    <Compile Include="Controller.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
